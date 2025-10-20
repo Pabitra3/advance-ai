@@ -1,8 +1,10 @@
 streamlit
 requests
-gtts
+gTTS
 SpeechRecognition
-pandas
 matplotlib
+pandas
 networkx
 imageio
+fpdf
+PyAudio

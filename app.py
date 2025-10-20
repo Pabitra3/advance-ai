@@ -1,10 +1,18 @@
+# app.py — Intellexa (cleaned & fixed)
 import streamlit as st
-import os, requests, json, tempfile
+import os
+import requests
+import json
+import tempfile
 from datetime import datetime
 from gtts import gTTS
 import speech_recognition as sr
 import matplotlib.pyplot as plt
 import pandas as pd
+import re
+import networkx as nx
+import imageio
+from fpdf import FPDF
 
 # =============================
 # Intellexa AI Tutor Settings
@@ -22,7 +30,7 @@ st.set_page_config(
 )
 
 # -------------------------
-# Custom CSS for buttons and layout
+# Custom CSS
 # -------------------------
 st.markdown("""
 <style>
@@ -47,31 +55,79 @@ with st.sidebar:
 # -------------------------
 # Tabs
 # -------------------------
-tabs = st.tabs(["📚 Learning Plan", "🤖 AI Tutor", "🎤 AI Interview Coach", "📊 Progress Dashboard", "⚡ AI Doubt Visualizer"])
+tabs = st.tabs([
+    "📚 Learning Plan",
+    "🤖 AI Tutor",
+    "🎤 AI Interview Coach",
+    "📊 Progress Dashboard",
+    "⚡ AI Doubt Visualizer"
+])
 
-# -------------------------
-# Tab 1: Learning Plan (AI-Generated)
-# -------------------------
+# =========================
+# Helper functions
+# =========================
+def call_openrouter(prompt, timeout=40):
+    """Call OpenRouter chat completions and return text or raise Exception."""
+    headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"}
+    payload = {"model": MODEL_ID, "messages": [{"role": "user", "content": prompt}]}
+    r = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=timeout)
+    if r.status_code == 200:
+        return r.json()["choices"][0]["message"]["content"]
+    else:
+        raise Exception(f"API Error {r.status_code}: {r.text}")
+
+def create_pdf(plan_text, student_name, goal, filename="Learning_Plan.pdf"):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, f"Learning Plan for {student_name}", ln=True, align="C")
+    pdf.ln(4)
+    pdf.set_font("Arial", "", 12)
+    pdf.cell(0, 8, f"Goal: {goal}", ln=True)
+    pdf.cell(0, 8, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True)
+    pdf.ln(6)
+    for line in plan_text.split("\n"):
+        pdf.multi_cell(0, 7, line)
+    pdf.output(filename)
+    return filename
+
+def draw_step_graph(steps, highlight_index, outpath):
+    G = nx.DiGraph()
+    for i in range(len(steps) - 1):
+        G.add_edge(i, i+1)
+    labels = {i: f"{i+1}. {steps[i]['title']}" for i in range(len(steps))}
+    pos = {i: (i, 0) for i in range(len(steps))}
+    node_colors = ["#4CAF50" if i == highlight_index else "#B0BEC5" for i in range(len(steps))]
+    node_sizes = [1400 if i == highlight_index else 900 for i in range(len(steps))]
+    plt.figure(figsize=(8, 3))
+    nx.draw(G, pos, with_labels=False, node_color=node_colors, node_size=node_sizes, arrows=True)
+    nx.draw_networkx_labels(G, pos, labels=labels, font_size=9, font_weight="bold")
+    # show detail below graph
+    plt.text(0, -0.8, steps[highlight_index]["detail"], fontsize=10, wrap=True)
+    plt.axis("off")
+    plt.tight_layout()
+    plt.savefig(outpath, dpi=150)
+    plt.close()
+
+# =========================
+# Tab 1: Learning Plan
+# =========================
 with tabs[0]:
     st.subheader("📅 AI-Powered Personalized Learning Plan")
-
     goal = st.selectbox(
         "Choose your Goal",
-        [
-            "Data Analytics",
-            "Web Development",
-            "Machine Learning",
-            "Data Science",
-            "MERN Stack",
-            "Java Development",
-            "Android Development",
-        ],
+        ["Data Analytics","Web Development","Machine Learning","Data Science",
+         "MERN Stack","Java Development","Android Development"]
     )
 
-    if name:
-        if st.button("✨ Generate AI Learning Plan"):
+    if "ai_plan_text" not in st.session_state:
+        st.session_state["ai_plan_text"] = None
+
+    if st.button("✨ Generate AI Learning Plan"):
+        if not name:
+            st.warning("Please enter your name in the sidebar first.")
+        else:
             with st.spinner("AI is generating your personalized study plan..."):
-                # Construct dynamic prompt for AI
                 prompt = f"""
                 You are an expert AI tutor.
                 Create a personalized {days}-day learning plan for a student named {name}
@@ -85,260 +141,175 @@ with tabs[0]:
                 Up to Day {days}.
                 Be detailed and tailored to their skill level and available time.
                 """
-
-                headers = {
-                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                    "Content-Type": "application/json",
-                }
-                payload = {
-                    "model": MODEL_ID,
-                    "messages": [{"role": "user", "content": prompt}],
-                }
-
                 try:
-                    r = requests.post(
-                        "https://openrouter.ai/api/v1/chat/completions",
-                        headers=headers,
-                        json=payload,
-                        timeout=40,
-                    )
-                    if r.status_code == 200:
-                        ai_plan = r.json()["choices"][0]["message"]["content"]
-                        st.session_state["ai_plan_text"] = ai_plan
-                        st.success("✅ AI learning plan generated successfully!")
-                    else:
-                        st.error(f"❌ API Error: {r.status_code}")
+                    ai_plan = call_openrouter(prompt, timeout=60)
+                    st.session_state["ai_plan_text"] = ai_plan
+                    st.success("✅ AI learning plan generated successfully!")
                 except Exception as e:
-                    st.error(f"❌ Request failed: {e}")
+                    st.error(f"❌ Failed to generate plan: {e}")
 
-    # -------------------------
-    # Display the AI Plan as Clickable Templates
-    # -------------------------
-    if "ai_plan_text" in st.session_state:
-        ai_plan = st.session_state["ai_plan_text"]
+    if st.session_state.get("ai_plan_text"):
+        plan_text = st.session_state["ai_plan_text"]
+        st.markdown("#### Your AI-generated plan:")
+        st.code(plan_text, language="")
 
-        # Parse plan into list of (Day, Content)
-        import re
-        day_blocks = re.findall(r"(Day\s*\d{1,2}[:\-]?\s*)([^\n]+)", ai_plan)
+        # parse days robustly
+        day_blocks = re.findall(r"(Day\s*\d{1,2}[:\-]?\s*)([^\n]+)", plan_text)
         if day_blocks:
             st.markdown("### 🗓️ Click a Day to View Details")
+            if "plan_progress" not in st.session_state:
+                st.session_state["plan_progress"] = {}
             for i, (day, content) in enumerate(day_blocks):
-                with st.expander(f"{day.strip().replace(':','')}"):
-                    st.markdown(f"**{day.strip()}** — {content.strip()}")
-        else:
-            st.warning("Could not parse AI response. Try regenerating.")
+                label = day.strip().replace(":", "")
+                with st.expander(f"{label}"):
+                    st.markdown(f"**{label}** — {content.strip()}")
+                    done = st.checkbox(f"✅ Mark {label} as Done", key=f"done_{i}")
+                    st.session_state["plan_progress"][label] = bool(done)
 
-
-# -------------------------
-# Tab 2: AI Tutor
-# -------------------------
-with tabs[1]:
-    if name:
-        st.subheader("🤖 AI Tutor Assistant")
-        # Extract topics dynamically from AI plan
-        if "ai_plan_text" in st.session_state:
-            import re
-            plan_text = st.session_state["ai_plan_text"]
-            topic_list = re.findall(r"Day\s*\d{1,2}[:\-]?\s*(.+?)(?:—|-|\n|$)", plan_text)
-            topic_list = [t.strip() for t in topic_list if len(t.strip()) > 2]
-        else:
-            topic_list = ["General Concepts", "Exercises", "Mini Project"]
-        chosen_topic = st.selectbox("Select a Topic", topic_list)
-        action = st.radio(
-            "Choose AI Action",
-            ["Explain Topic Clearly","Generate Practice Questions",
-             "Suggest Next Topic","Give Study Improvement Tips"]
-        )
-
-        if st.button("Ask AI ✨", key="ai_tutor"):
-            with st.spinner("AI is generating..."):
-                prompt = f"You are an AI tutor for {goal}. {action} about {chosen_topic} for a {level} learner."
-                headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"}
-                payload = {"model": MODEL_ID, "messages": [{"role": "user", "content": prompt}]}
+            # Download PDF
+            if st.button("📄 Download Learning Plan as PDF"):
                 try:
-                    r = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=30)
-                    if r.status_code == 200:
-                        result = r.json()["choices"][0]["message"]["content"]
-                        st.success(result)
-                    else:
-                        st.error(f"❌ API Error: {r.status_code} — {r.text}")
+                    pdf_path = create_pdf(plan_text, name or "Student", goal)
+                    with open(pdf_path, "rb") as f:
+                        st.download_button("⬇️ Download PDF", f, file_name=os.path.basename(pdf_path))
                 except Exception as e:
-                    st.error(f"❌ Request failed: {e}")
+                    st.error(f"Failed to create PDF: {e}")
+        else:
+            st.warning("Could not parse AI response into days. Try regenerating.")
 
-# -------------------------
-# Tab 3: AI Interview Coach (Enhanced)
-# -------------------------
+# =========================
+# Tab 2: AI Tutor (Adaptive)
+# =========================
+with tabs[1]:
+    st.subheader("🤖 AI Tutor Assistant")
+    if "ai_plan_text" in st.session_state and st.session_state["ai_plan_text"]:
+        topic_list = re.findall(r"Day\s*\d{1,2}[:\-]?\s*(.+?)(?:—|-|\n|$)", st.session_state["ai_plan_text"])
+        topic_list = [t.strip() for t in topic_list if t.strip()]
+    else:
+        topic_list = ["General Concepts", "Exercises", "Mini Project"]
+
+    chosen_topic = st.selectbox("Select a Topic", topic_list)
+    action = st.radio(
+        "Choose AI Action",
+        ["Explain Topic Clearly", "Generate Practice Questions", "Suggest Next Topic", "Give Study Improvement Tips"]
+    )
+
+    if st.button("Ask AI ✨", key="ai_tutor"):
+        if not name:
+            st.warning("Please enter your name in the sidebar first.")
+        else:
+            with st.spinner("AI is generating..."):
+                style = {
+                    "Beginner": "Use simple analogies, step-by-step examples, small hands-on exercises.",
+                    "Intermediate": "Provide conceptual depth, practical tips, and intermediate exercises.",
+                    "Advanced": "Give in-depth technical explanation, advanced examples, and references."
+                }[level]
+                prompt = f"You are an AI tutor for {goal}. {action} about {chosen_topic} for a {level} learner. {style}"
+                try:
+                    result = call_openrouter(prompt, timeout=40)
+                    # Show result safely
+                    st.markdown("### AI Response")
+                    st.write(result)
+                except Exception as e:
+                    st.error(f"AI request failed: {e}")
+
+# =========================
+# Tab 3: AI Interview Coach
+# =========================
 with tabs[2]:
     st.subheader("🎤 AI Interview Coach")
-
-    # 1️⃣ Auto-fetch domain from goal
-    domain = goal if goal else st.selectbox(
-        "Choose your Interview Domain", 
-        ["Machine Learning", "Web Development", "Data Analytics", "Data Science"]
-    )
+    domain = goal or st.selectbox("Choose your Interview Domain", ["Machine Learning","Web Development","Data Analytics","Data Science"])
     st.info(f"📘 Interview Domain: **{domain}**")
-
-    # 2️⃣ Choose number of questions
-    num_questions = st.radio(
-        "Select number of interview questions",
-        [50, 100, 200],
-        horizontal=True
-    )
-
-    # 3️⃣ Generate Questions
+    num_questions = st.radio("Select number of interview questions", [50, 100, 200], horizontal=True)
     if st.button("⚙️ Generate Interview Questions"):
         with st.spinner("AI is generating interview questions..."):
-            prompt = f"""
-            You are an expert technical interviewer for {domain}.
-            Generate {num_questions} high-quality interview questions covering beginner to advanced concepts.
-            Each question should be clear, concise, and relevant.
-            Number the questions as:
-            1. Question one
-            2. Question two
-            ...
-            """
-            headers = {
-                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "Content-Type": "application/json",
-            }
-            payload = {"model": MODEL_ID, "messages": [{"role": "user", "content": prompt}]}
-
+            prompt = f"You are an expert technical interviewer for {domain}. Generate {num_questions} high-quality interview questions numbered 1..{num_questions}."
             try:
-                r = requests.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers=headers,
-                    json=payload,
-                    timeout=60,
-                )
-                if r.status_code == 200:
-                    ai_questions = r.json()["choices"][0]["message"]["content"]
-                    st.session_state["interview_questions"] = ai_questions
-                    st.success("✅ Interview questions generated successfully!")
-                else:
-                    st.error(f"❌ API Error: {r.status_code}")
+                qs_text = call_openrouter(prompt, timeout=90)
+                st.session_state["interview_questions"] = qs_text
+                st.success("✅ Interview questions generated successfully!")
             except Exception as e:
-                st.error(f"❌ Request failed: {e}")
+                st.error(f"Failed to generate questions: {e}")
 
-    # 4️⃣ Show the questions if available
-    if "interview_questions" in st.session_state:
-        import re
+    if "interview_questions" in st.session_state and st.session_state["interview_questions"]:
         questions_text = st.session_state["interview_questions"]
-
-        # Extract numbered questions
         question_list = re.findall(r"\d+\.\s*(.+)", questions_text)
         if question_list:
             st.markdown("### 🧩 Your Interview Questions")
-
-            # Initialize answer storage
             if "interview_answers" not in st.session_state:
                 st.session_state["interview_answers"] = {}
-
+            # limit displayed questions to avoid huge UI freeze; show first 200 only
             for idx, q in enumerate(question_list, 1):
                 with st.expander(f"Q{idx}: {q}"):
-                    mode = st.radio(
-                        f"Answer mode for Q{idx}",
-                        ["Text", "Voice"],
-                        key=f"mode_{idx}"
-                    )
-
+                    mode = st.radio(f"Answer mode for Q{idx}", ["Text", "Voice"], key=f"mode_{idx}")
                     user_answer = ""
-
                     if mode == "Text":
                         user_answer = st.text_area(f"✍️ Your answer for Q{idx}", key=f"ans_{idx}")
                     else:
-                        audio_file = st.file_uploader(
-                            f"🎙️ Upload your voice answer for Q{idx} (.mp3)", 
-                            type=["mp3"], 
-                            key=f"audio_{idx}"
-                        )
+                        audio_file = st.file_uploader(f"🎙️ Upload voice answer for Q{idx} (.mp3)", type=["mp3"], key=f"audio_{idx}")
                         if audio_file:
-                            import tempfile
-                            r = sr.Recognizer()
-                            with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+                            recognizer = sr.Recognizer()
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
                                 tmp_file.write(audio_file.read())
                                 tmp_path = tmp_file.name
-                            with sr.AudioFile(tmp_path) as source:
-                                audio_data = r.record(source)
-                                try:
-                                    user_answer = r.recognize_google(audio_data)
+                            try:
+                                with sr.AudioFile(tmp_path) as source:
+                                    audio_data = recognizer.record(source)
+                                    user_answer = recognizer.recognize_google(audio_data)
                                     st.info(f"Transcribed Answer: {user_answer}")
-                                except:
-                                    st.error("❌ Could not recognize audio. Try again or type manually.")
-
-                    # 5️⃣ Evaluate each answer individually
+                            except Exception as e:
+                                st.error("Could not transcribe audio. Try typing your answer.")
                     if user_answer and st.button(f"🧠 Evaluate Answer Q{idx}", key=f"eval_{idx}"):
                         with st.spinner("AI is evaluating your answer..."):
-                            eval_prompt = f"""
-                            You are a senior interviewer in {domain}.
-                            Evaluate the following answer for question: '{q}'.
-                            Answer: '{user_answer}'.
-                            Provide:
-                            - A score (0-10) for confidence, technical depth, and clarity.
-                            - 2-3 lines of improvement suggestions.
-                            """
-                            headers = {
-                                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                                "Content-Type": "application/json",
-                            }
-                            payload = {
-                                "model": MODEL_ID,
-                                "messages": [{"role": "user", "content": eval_prompt}],
-                            }
-
+                            eval_prompt = (
+                                f"You are a senior interviewer in {domain}. "
+                                f"Evaluate the following answer for question: '{q}'.\nAnswer: '{user_answer}'.\n"
+                                "Provide: a score (0-10) for confidence, technical depth, and clarity. "
+                                "Then 2-3 concise improvement suggestions."
+                            )
                             try:
-                                r = requests.post(
-                                    "https://openrouter.ai/api/v1/chat/completions",
-                                    headers=headers,
-                                    json=payload,
-                                    timeout=60,
-                                )
-                                if r.status_code == 200:
-                                    feedback = r.json()["choices"][0]["message"]["content"]
-                                    st.markdown(f"**🧩 AI Feedback:**\n{feedback}")
-                                    st.session_state["interview_answers"][idx] = {
-                                        "question": q,
-                                        "answer": user_answer,
-                                        "feedback": feedback,
-                                    }
-
-                                    # Optional: Convert feedback to voice
-                                    try:
-                                        tts = gTTS(text=feedback, lang="en")
-                                        tmp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-                                        tts.save(tmp_audio.name)
-                                        st.audio(tmp_audio.name)
-                                    except:
-                                        pass
-                                else:
-                                    st.error(f"❌ API Error: {r.status_code}")
+                                feedback = call_openrouter(eval_prompt, timeout=60)
+                                st.markdown("**🧩 AI Feedback:**")
+                                st.write(feedback)
+                                st.session_state["interview_answers"][idx] = {"question": q, "answer": user_answer, "feedback": feedback}
+                                # TTS playback
+                                try:
+                                    tts = gTTS(text=feedback, lang="en")
+                                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as ta:
+                                        tts.save(ta.name)
+                                        st.audio(ta.name)
+                                except Exception:
+                                    pass
                             except Exception as e:
-                                st.error(f"❌ Request failed: {e}")
+                                st.error(f"Evaluation failed: {e}")
         else:
-            st.warning("⚠️ Could not extract questions from AI response. Try regenerating.")
+            st.warning("Could not extract questions properly. Try regenerating with fewer questions.")
 
-
-# -------------------------
-# Tab 4: Progress Dashboard (AI Interview Integration)
-# -------------------------
+# =========================
+# Tab 4: Progress Dashboard
+# =========================
 with tabs[3]:
-    st.subheader("📊 Interview Progress Dashboard")
+    st.subheader("📊 Progress Dashboard")
+    # Show completed days
+    completed = st.session_state.get("plan_progress", {})
+    if completed:
+        completed_days = [d for d, v in completed.items() if v]
+        if completed_days:
+            st.markdown(f"**✅ Completed Days:** {', '.join(completed_days)}")
+        else:
+            st.info("No days marked completed yet.")
+    else:
+        st.info("No learning plan yet. Generate one in the Learning Plan tab.")
 
-    # Fetch saved answers from interview tab
+    # Interview history
     history = st.session_state.get("interview_answers", {})
-
     if history:
-        # Convert dict to DataFrame
-        import pandas as pd
-        df = pd.DataFrame(history).T  # transpose to get each idx as a row
+        df = pd.DataFrame(history).T
+        st.markdown("### 📝 Interview Answers & Feedback")
         st.dataframe(df[["question", "answer", "feedback"]])
 
-        # -------------------------
-        # Extract scores from AI feedback
-        # -------------------------
-        import re
-
+        # Try extracting numeric scores
         def extract_score(text, metric):
-            # Example: 'confidence: 8'
             match = re.search(f"{metric}: *(\\d+)", text, re.IGNORECASE)
             return int(match.group(1)) if match else None
 
@@ -346,47 +317,41 @@ with tabs[3]:
         df["Technical"] = df["feedback"].apply(lambda x: extract_score(x, "technical"))
         df["Clarity"] = df["feedback"].apply(lambda x: extract_score(x, "clarity"))
 
-        # -------------------------
-        # Show charts
-        # -------------------------
-        import matplotlib.pyplot as plt
         st.markdown("### 📈 Score Trends")
         fig, ax = plt.subplots(figsize=(10, 4))
-        ax.plot(df.index, df["Confidence"], label="Confidence", marker="o", color="#4CAF50")
-        ax.plot(df.index, df["Technical"], label="Technical", marker="o", color="#2196F3")
-        ax.plot(df.index, df["Clarity"], label="Clarity", marker="o", color="#FF9800")
-        ax.set_xlabel("Question Number")
-        ax.set_ylabel("Score (0-10)")
+        if df["Confidence"].notnull().any():
+            ax.plot(df.index, df["Confidence"], marker="o", label="Confidence")
+        if df["Technical"].notnull().any():
+            ax.plot(df.index, df["Technical"], marker="o", label="Technical")
+        if df["Clarity"].notnull().any():
+            ax.plot(df.index, df["Clarity"], marker="o", label="Clarity")
         ax.set_ylim(0, 10)
+        ax.set_xlabel("Question Number (index)")
+        ax.set_ylabel("Score (0-10)")
         ax.legend()
         st.pyplot(fig)
 
-        # -------------------------
-        # Badges / Achievements
-        # -------------------------
+        # Achievements
         st.markdown("### 🏅 Achievements")
         if len(df) >= 1:
             st.success("🥇 First Interview Completed!")
-        if df["Confidence"].dropna().max() >= 8:
+        if df["Confidence"].dropna().max() >= 8 if df["Confidence"].dropna().size else False:
             st.success("💡 Confidence Master Badge!")
-        if df["Technical"].dropna().max() >= 8:
+        if df["Technical"].dropna().max() >= 8 if df["Technical"].dropna().size else False:
             st.success("🧠 Technical Genius Badge!")
-        if df["Clarity"].dropna().max() >= 8:
+        if df["Clarity"].dropna().max() >= 8 if df["Clarity"].dropna().size else False:
             st.success("🎯 Clear Communicator Badge!")
     else:
         st.info("No interview answers yet. Use the AI Interview Coach tab first.")
-# -------------------------
+
+# =========================
 # Tab 5: AI Doubt Visualizer
-# -------------------------
-import networkx as nx
-import imageio
-
-with st.tabs[4]:
+# =========================
+with tabs[4]:
     st.subheader("⚡ AI Doubt Visualizer")
-    st.caption("Convert complex doubts into easy, step-by-step visual explanations with AI-powered animations & narration.")
-
+    st.caption("Convert complex doubts into step-by-step visual explanations with narration.")
     doubt = st.text_area("💭 Enter your doubt/question", placeholder="e.g., How does backpropagation work in neural networks?")
-    visualize_btn = st.button("Visualize Doubt", key="visualizer")
+    visualize_btn = st.button("Visualize Doubt")
 
     def generate_steps(question):
         prompt = f"""
@@ -399,49 +364,16 @@ with st.tabs[4]:
         ]
         Keep each title under 6 words and detail under 2 sentences.
         """
-        headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"}
-        payload = {"model": MODEL_ID, "messages": [{"role": "user", "content": prompt}]}
         try:
-            r = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=30)
-            text = r.json()["choices"][0]["message"]["content"]
-            import re, json
+            text = call_openrouter(prompt, timeout=30)
+            # try to extract JSON array
             match = re.search(r"(\[.*\])", text, flags=re.S)
-            data = json.loads(match.group(1)) if match else json.loads(text)
+            json_text = match.group(1) if match else text
+            data = json.loads(json_text)
             return data
         except Exception as e:
             st.error(f"❌ Failed to generate steps: {e}")
             return []
-
-    def draw_step_graph(steps, highlight_index, outpath):
-        G = nx.DiGraph()
-        labels = {i: f"{i+1}. {steps[i]['title']}" for i in range(len(steps))}
-        for i in range(len(steps) - 1):
-            G.add_edge(i, i+1)
-        pos = {i: (i, 0) for i in range(len(steps))}
-        node_colors = ["#4CAF50" if i == highlight_index else "#B0BEC5" for i in range(len(steps))]
-        node_sizes = [1400 if i == highlight_index else 900 for i in range(len(steps))]
-        plt.figure(figsize=(8, 3))
-        nx.draw(G, pos, with_labels=False, node_color=node_colors, node_size=node_sizes, arrows=True)
-        nx.draw_networkx_labels(G, pos, labels=labels, font_size=9, font_weight="bold")
-        plt.text(0, -0.8, steps[highlight_index]["detail"], fontsize=10, wrap=True)
-        plt.axis("off")
-        plt.tight_layout()
-        plt.savefig(outpath, dpi=150)
-        plt.close()
-
-    def generate_visualization(steps):
-        import tempfile
-        with tempfile.TemporaryDirectory() as td:
-            frames = []
-            paths = []
-            for i in range(len(steps)):
-                fname = os.path.join(td, f"frame_{i}.png")
-                draw_step_graph(steps, i, fname)
-                paths.append(fname)
-            gif_path = os.path.join(td, "visual.gif")
-            imgs = [imageio.imread(p) for p in paths]
-            imageio.mimsave(gif_path, imgs, duration=1.0)
-            return gif_path
 
     if visualize_btn and doubt:
         with st.spinner("🧠 Thinking & Visualizing..."):
@@ -449,20 +381,32 @@ with st.tabs[4]:
             if steps:
                 st.success("✅ Generated Explanation Steps:")
                 for i, s in enumerate(steps, 1):
-                    st.markdown(f"*{i}. {s['title']}* — {s['detail']}")
+                    st.markdown(f"*{i}. **{s['title']}** — {s['detail']}*")
 
-                # Visualize as GIF
-                gif_path = generate_visualization(steps)
-                st.image(gif_path, caption="AI-Generated Visual Explanation")
+                # create frames and a gif inside a temporary directory, then read bytes
+                with tempfile.TemporaryDirectory() as td:
+                    frame_paths = []
+                    for i in range(len(steps)):
+                        p = os.path.join(td, f"frame_{i}.png")
+                        draw_step_graph(steps, i, p)
+                        frame_paths.append(p)
+                    gif_path = os.path.join(td, "visual.gif")
+                    imgs = [imageio.imread(p) for p in frame_paths]
+                    imageio.mimsave(gif_path, imgs, duration=1.0)
 
-                # Audio Narration
-                try:
-                    narration = " ".join([f"Step {i+1}: {s['title']}. {s['detail']}" for i, s in enumerate(steps)])
-                    tts = gTTS(text=narration, lang="en")
-                    tmp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-                    tts.save(tmp_audio.name)
-                    st.audio(tmp_audio.name)
-                except Exception as e:
-                    st.warning(f"Audio generation failed: {e}")
+                    # read gif bytes and display safely
+                    with open(gif_path, "rb") as gf:
+                        gif_bytes = gf.read()
+                        st.image(gif_bytes, caption="AI-Generated Visual Explanation", format="gif")
+
+                    # Audio narration
+                    try:
+                        narration = " ".join([f"Step {i+1}: {s['title']}. {s['detail']}" for i, s in enumerate(steps)])
+                        tts = gTTS(text=narration, lang="en")
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as ta:
+                            tts.save(ta.name)
+                            st.audio(ta.name)
+                    except Exception as e:
+                        st.warning(f"Audio generation failed: {e}")
             else:
                 st.error("❌ Could not generate steps. Try rephrasing your question.")
