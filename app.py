@@ -50,50 +50,84 @@ with st.sidebar:
 tabs = st.tabs(["📚 Learning Plan", "🤖 AI Tutor", "🎤 AI Interview Coach", "📊 Progress Dashboard"])
 
 # -------------------------
-# Tab 1: Learning Plan
+# Tab 1: Learning Plan (AI-Generated)
 # -------------------------
 with tabs[0]:
-    goal = st.selectbox("Choose your Goal", 
-                        ["Data Analytics","Web Development","Machine Learning","Data Science",
-                         "MERN Stack","Java Development","Android Development"])
+    st.subheader("📅 AI-Powered Personalized Learning Plan")
+
+    goal = st.selectbox(
+        "Choose your Goal",
+        [
+            "Data Analytics",
+            "Web Development",
+            "Machine Learning",
+            "Data Science",
+            "MERN Stack",
+            "Java Development",
+            "Android Development",
+        ],
+    )
+
     if name:
-        st.subheader(f"📅 {goal} Learning Plan for {name}")
+        if st.button("✨ Generate AI Learning Plan"):
+            with st.spinner("AI is generating your personalized study plan..."):
+                # Construct dynamic prompt for AI
+                prompt = f"""
+                You are an expert AI tutor.
+                Create a personalized {days}-day learning plan for a student named {name}
+                who wants to master {goal}.
+                The student's skill level is {level}, and they can study {hours} hours per day.
 
-        topics = {
-            "Data Analytics":["Python Basics","SQL","Data Cleaning","Visualization","Project"],
-            "Web Development":["HTML/CSS","JavaScript","Frontend Frameworks","Backend Basics","Mini Project"],
-            "Machine Learning":["Python & Numpy","Pandas & Matplotlib","Supervised ML","Unsupervised ML","ML Project"],
-            "Data Science":["Statistics","Python for DS","EDA","ML Algorithms","Capstone Project"],
-            "MERN Stack":["MongoDB","Express.js","React.js","Node.js","Full-stack Project"],
-            "Java Development":["Core Java","OOP Concepts","Spring Boot","Database Connectivity","Project"],
-            "Android Development":["Java/Kotlin Basics","Android Studio UI","APIs & Firebase","App Deployment","Final Project"]
-        }
+                The plan must be returned as a numbered list in this format:
+                Day 01: [Topic Name] — [Key Concepts/Activities]
+                Day 02: [Topic Name] — [Key Concepts/Activities]
+                ...
+                Up to Day {days}.
+                Be detailed and tailored to their skill level and available time.
+                """
 
-        topic_list = topics.get(goal, [])
-        plan = []
-        for i in range(days):
-            topic = topic_list[i % len(topic_list)]
-            plan.append({
-                "Day": f"Day {i+1}",
-                "Topic": topic,
-                "Activity": f"Learn and practice {topic.lower()}",
-                "Goal": f"Complete exercises on {topic.lower()}"
-            })
+                headers = {
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json",
+                }
+                payload = {
+                    "model": MODEL_ID,
+                    "messages": [{"role": "user", "content": prompt}],
+                }
 
-        # Display as cards
-        cols_per_row = 3
-        for i in range(0, len(plan), cols_per_row):
-            cols = st.columns(cols_per_row)
-            for j, p in enumerate(plan[i:i+cols_per_row]):
-                with cols[j]:
-                    st.markdown(f"""
-                    <div style="background-color:#f0f2f6;padding:15px;border-radius:10px;">
-                        <h4>{p['Day']}</h4>
-                        <b>Topic:</b> {p['Topic']}<br>
-                        <b>Activity:</b> {p['Activity']}<br>
-                        <b>Goal:</b> {p['Goal']}
-                    </div>
-                    """, unsafe_allow_html=True)
+                try:
+                    r = requests.post(
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        headers=headers,
+                        json=payload,
+                        timeout=40,
+                    )
+                    if r.status_code == 200:
+                        ai_plan = r.json()["choices"][0]["message"]["content"]
+                        st.session_state["ai_plan_text"] = ai_plan
+                        st.success("✅ AI learning plan generated successfully!")
+                    else:
+                        st.error(f"❌ API Error: {r.status_code}")
+                except Exception as e:
+                    st.error(f"❌ Request failed: {e}")
+
+    # -------------------------
+    # Display the AI Plan as Clickable Templates
+    # -------------------------
+    if "ai_plan_text" in st.session_state:
+        ai_plan = st.session_state["ai_plan_text"]
+
+        # Parse plan into list of (Day, Content)
+        import re
+        day_blocks = re.findall(r"(Day\s*\d{1,2}[:\-]?\s*)([^\n]+)", ai_plan)
+        if day_blocks:
+            st.markdown("### 🗓️ Click a Day to View Details")
+            for i, (day, content) in enumerate(day_blocks):
+                with st.expander(f"{day.strip().replace(':','')}"):
+                    st.markdown(f"**{day.strip()}** — {content.strip()}")
+        else:
+            st.warning("Could not parse AI response. Try regenerating.")
+
 
 # -------------------------
 # Tab 2: AI Tutor
