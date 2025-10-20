@@ -24,7 +24,6 @@ MODEL_ID = "gpt-4o-mini"
 IMAGEGEN_API_KEY = os.getenv("IMAGEGEN_API_KEY")
 
 
-
 # -------------------------
 # Page config
 # -------------------------
@@ -357,46 +356,46 @@ with tabs[4]:
 
     doubt = st.text_area("💭 Enter your doubt or concept to visualize")
     if st.button("🎨 Generate Visual Explanation"):
-        if not doubt.strip():
-            st.warning("Please enter your question first.")
-        else:
-            with st.spinner("Generating visual explanation..."):
+        with st.spinner("Generating visual explanation..."):
+            import base64
+            import json
+
+            try:
+                r = requests.post(
+                    "https://openrouter.ai/api/v1/images/generations",
+                    headers={"Authorization": f"Bearer {IMAGEGEN_API_KEY}", "Content-Type": "application/json"},
+                    json={
+                    "model": "google/gemini-2.5-flash-image-preview-nano-banana",
+                    "prompt": f"Visual diagram explaining the concept: {doubt}",
+                    "size": "1024x1024"
+                    },
+                    timeout=60,
+                )
                 try:
-                    prompt = f"Create an educational infographic that explains: {doubt}. Use pastel colors, icons, and labels."
+                    result = r.json()
+                except json.JSONDecodeError:
+                    st.error("⚠️ Could not parse response as JSON.")
+                    st.stop()
 
-                    headers = {
-                        "Authorization": f"Bearer {IMAGEGEN_API_KEY}",
-                        "Content-Type": "application/json"
-                    }
+                if isinstance(result, dict) and "data" in result:
+                    image_base64 = result["data"][0]["b64_json"]
+                elif isinstance(result, list) and len(result) > 0:
+                    image_base64 = result[0].get("b64_json", None)
+                else:
+                    st.error("⚠️ Unexpected API response format. Try again later.")
+                    st.write(result)
+                    st.stop()
+                image_bytes = base64.b64decode(image_base64)
+                st.image(image_bytes, caption="🧠 Gemini AI Visual Explanation", use_container_width=True)
+            except Exception as e:
+                st.error(f"❌ Error generating visual explanation: {e}")
+                
+                # Add optional audio explanation
+                tts_text = f"Here’s a visual explanation for your question: {doubt}."
+                tts = gTTS(text=tts_text, lang="en")
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmpfile:
+                    tts.save(tmpfile.name)
+                    st.audio(tmpfile.name, format="audio/mp3")
 
-                    payload = {
-                        "model": "google/gemini-2.5-flash-image-preview",
-                        "messages": [{"role": "user", "content": prompt}],
-                        "response_modalities": ["Image"]
-                    }
-
-                    response = requests.post("https://openrouter.ai/api/v1/chat/completions",
-                                             headers=headers, json=payload, timeout=90)
-                    response.raise_for_status()
-                    result = response.json()
-
-                    part = result["choices"][0]["message"]["content"]["parts"][0]
-                    if "inline_data" in part:
-                        img_bytes = base64.b64decode(part["inline_data"]["data"])
-                    elif "url" in part:
-                        img_bytes = requests.get(part["url"]).content
-                    else:
-                        st.error("No image data found.")
-                        st.stop()
-
-                    st.image(img_bytes, caption="AI-Generated Visual Explanation", use_container_width=True)
-
-                    # Add optional audio explanation
-                    tts_text = f"Here’s a visual explanation for your question: {doubt}."
-                    tts = gTTS(text=tts_text, lang="en")
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmpfile:
-                        tts.save(tmpfile.name)
-                        st.audio(tmpfile.name, format="audio/mp3")
-
-                except Exception as e:
-                    st.error(f"❌ Error generating visual explanation: {e}")
+            except Exception as e:
+                st.error(f"❌ Error generating visual explanation: {e}")
