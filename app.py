@@ -349,7 +349,7 @@ with tabs[3]:
         st.info("No interview answers yet. Use the AI Interview Coach tab first.")
 
 # =========================
-# Tab 5: AI Doubt Visualizer (FIXED - Using Text-to-Image via OpenRouter)
+# Tab 5: AI Doubt Visualizer (FIXED)
 # =========================
 with tabs[4]:
     st.header("🎨 AI Doubt Visualizer")
@@ -418,7 +418,7 @@ with tabs[4]:
                     plt.savefig(diagram_path, dpi=150, bbox_inches='tight')
                     plt.close()
                     
-                    st.image(diagram_path, caption="🎨 Concept Visualization", use_container_width=True)
+                    st.image(diagram_path, caption="🎨 Concept Visualization", use_column_width=True)
                 
                 except Exception as viz_error:
                     st.warning(f"Could not generate diagram: {viz_error}")
@@ -462,7 +462,6 @@ with tabs[4]:
                 mermaid_code = call_openrouter(diagram_prompt, timeout=60)
                 
                 # Extract mermaid code from markdown
-                import re
                 mermaid_match = re.search(r'```mermaid\n(.*?)\n```', mermaid_code, re.DOTALL)
                 
                 if mermaid_match:
@@ -540,7 +539,7 @@ with tabs[4]:
                 plt.savefig(map_path, dpi=150, bbox_inches='tight', facecolor='white')
                 plt.close()
                 
-                st.image(map_path, caption="🗺️ Concept Map", use_container_width=True)
+                st.image(map_path, caption="🗺️ Concept Map", use_column_width=True)
                 st.info(map_data)
                 
             except Exception as e:
