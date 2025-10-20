@@ -135,6 +135,9 @@ with tabs[0]:
 with tabs[1]:
     if name:
         st.subheader("🤖 AI Tutor Assistant")
+        # Ensure topic_list exists
+        if "topic_list" not in locals():
+           topic_list = ["General Concepts", "Exercises", "Mini Project"]
         chosen_topic = st.selectbox("Select a Topic", topic_list)
         action = st.radio(
             "Choose AI Action",
