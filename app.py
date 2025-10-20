@@ -349,107 +349,199 @@ with tabs[3]:
         st.info("No interview answers yet. Use the AI Interview Coach tab first.")
 
 # =========================
-# Tab 5: AI Doubt Visualizer (FIXED)
+# Tab 5: AI Doubt Visualizer (FIXED - Using Text-to-Image via OpenRouter)
 # =========================
 with tabs[4]:
     st.header("🎨 AI Doubt Visualizer")
 
     doubt = st.text_area("💭 Enter your doubt or concept to visualize")
+    
+    # Option 1: Use AI to generate a textual diagram/explanation
     if st.button("🎨 Generate Visual Explanation"):
         with st.spinner("Generating visual explanation..."):
-            import base64
-
             try:
-                # Make API request
-                r = requests.post(
-                    "https://openrouter.ai/api/v1/images/generations",
-                    headers={
-                        "Authorization": f"Bearer {IMAGEGEN_API_KEY}", 
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": "google/gemini-2.5-flash-image-preview-nano-banana",
-                        "prompt": f"Visual diagram explaining the concept: {doubt}",
-                        "size": "1024x1024"
-                    },
-                    timeout=60,
-                )
+                # Since OpenRouter's image generation endpoint might not be available,
+                # we'll use the text API to generate a detailed visual description
+                # and create a diagram using matplotlib or mermaid
                 
-                # Check if request was successful
-                if r.status_code != 200:
-                    st.error(f"❌ API Error {r.status_code}: {r.text}")
-                    st.stop()
+                visual_prompt = f"""
+                Create a detailed step-by-step visual explanation for this concept: {doubt}
                 
-                # Try to parse JSON
+                Format your response as:
+                1. Main Concept: [brief description]
+                2. Key Components: [list 3-5 main parts]
+                3. How It Works: [step-by-step process]
+                4. Visual Representation: [describe a simple diagram structure]
+                5. Simple Analogy: [relate to everyday concept]
+                
+                Make it clear, beginner-friendly, and easy to visualize.
+                """
+                
+                # Get AI explanation
+                explanation = call_openrouter(visual_prompt, timeout=60)
+                
+                # Display the explanation
+                st.markdown("### 🧠 AI Visual Explanation")
+                st.info(explanation)
+                
+                # Generate a simple flowchart/diagram using matplotlib
                 try:
-                    result = r.json()
-                except json.JSONDecodeError as je:
-                    st.error("⚠️ Could not parse response as JSON.")
-                    st.subheader("🔍 Raw API Response:")
-                    st.code(r.text)
-                    st.error(f"JSON Error: {str(je)}")
-                    st.stop()
-
-                # Extract image data based on response structure
-                image_base64 = None
+                    fig, ax = plt.subplots(figsize=(10, 8))
+                    ax.axis('off')
+                    
+                    # Parse the explanation to create a visual
+                    lines = explanation.split('\n')
+                    y_pos = 0.9
+                    
+                    for line in lines[:15]:  # Show first 15 lines
+                        if line.strip():
+                            # Color code different sections
+                            if 'Main Concept' in line or 'Key Components' in line:
+                                bbox_props = dict(boxstyle='round,pad=0.5', facecolor='#4CAF50', alpha=0.8)
+                            elif 'How It Works' in line:
+                                bbox_props = dict(boxstyle='round,pad=0.5', facecolor='#2196F3', alpha=0.8)
+                            elif 'Visual Representation' in line or 'Analogy' in line:
+                                bbox_props = dict(boxstyle='round,pad=0.5', facecolor='#FF9800', alpha=0.8)
+                            else:
+                                bbox_props = dict(boxstyle='round,pad=0.3', facecolor='#E0E0E0', alpha=0.6)
+                            
+                            ax.text(0.5, y_pos, line.strip()[:80], 
+                                   ha='center', va='top', wrap=True,
+                                   fontsize=10, bbox=bbox_props)
+                            y_pos -= 0.12
+                    
+                    plt.title(f"Visual Explanation: {doubt[:50]}", fontsize=14, fontweight='bold', pad=20)
+                    
+                    # Save and display
+                    diagram_path = "visual_explanation.png"
+                    plt.tight_layout()
+                    plt.savefig(diagram_path, dpi=150, bbox_inches='tight')
+                    plt.close()
+                    
+                    st.image(diagram_path, caption="🎨 Concept Visualization", use_container_width=True)
                 
-                # Check for standard OpenAI-style response
-                if isinstance(result, dict):
-                    if "data" in result and len(result["data"]) > 0:
-                        image_data = result["data"][0]
-                        # Check for both b64_json and url
-                        if "b64_json" in image_data:
-                            image_base64 = image_data["b64_json"]
-                        elif "url" in image_data:
-                            # If URL is provided instead of base64
-                            image_url = image_data["url"]
-                            st.image(image_url, caption="🧠 Gemini AI Visual Explanation", use_container_width=True)
-                            image_base64 = "URL_PROVIDED"  # Skip base64 decoding
-                    elif "error" in result:
-                        st.error(f"❌ API returned error: {result['error']}")
-                        st.stop()
+                except Exception as viz_error:
+                    st.warning(f"Could not generate diagram: {viz_error}")
                 
-                # Check for list response format
-                elif isinstance(result, list) and len(result) > 0:
-                    if "b64_json" in result[0]:
-                        image_base64 = result[0]["b64_json"]
-                    elif "url" in result[0]:
-                        image_url = result[0]["url"]
-                        st.image(image_url, caption="🧠 Gemini AI Visual Explanation", use_container_width=True)
-                        image_base64 = "URL_PROVIDED"
-                
-                # If we couldn't extract image data
-                if not image_base64:
-                    st.error("⚠️ Unexpected API response format.")
-                    st.subheader("🔍 Response Structure:")
-                    st.json(result)
-                    st.info("The API response doesn't contain expected image data. Please check the API documentation or try a different model.")
-                    st.stop()
-                
-                # Decode and display base64 image if provided
-                if image_base64 and image_base64 != "URL_PROVIDED":
-                    try:
-                        image_bytes = base64.b64decode(image_base64)
-                        st.image(image_bytes, caption="🧠 Gemini AI Visual Explanation", use_container_width=True)
-                    except Exception as decode_error:
-                        st.error(f"❌ Error decoding image: {decode_error}")
-                        st.stop()
-                
-                # Add optional audio explanation
+                # Add audio explanation
                 try:
-                    tts_text = f"Here's a visual explanation for your question: {doubt}."
+                    tts_text = f"Let me explain {doubt}. {explanation[:500]}"  # First 500 chars for audio
                     tts = gTTS(text=tts_text, lang="en")
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmpfile:
                         tts.save(tmpfile.name)
                         st.audio(tmpfile.name, format="audio/mp3")
                 except Exception as tts_error:
-                    # Don't fail the whole operation if TTS fails
                     st.warning(f"Could not generate audio: {tts_error}")
-
-            except requests.exceptions.Timeout:
-                st.error("❌ Request timed out. Please try again.")
-            except requests.exceptions.RequestException as req_error:
-                st.error(f"❌ Network error: {req_error}")
+                
             except Exception as e:
-                st.error(f"❌ Unexpected error: {e}")
-                st.exception(e)  # Show full traceback for debugging
+                st.error(f"❌ Error generating explanation: {e}")
+    
+    # Option 2: Generate a Mermaid diagram
+    st.markdown("---")
+    st.subheader("🔷 Generate Concept Diagram")
+    
+    if st.button("📊 Create Mermaid Diagram"):
+        with st.spinner("Creating diagram..."):
+            try:
+                diagram_prompt = f"""
+                Create a Mermaid flowchart diagram to explain: {doubt}
+                
+                Return ONLY the mermaid code (starting with ```mermaid and ending with ```).
+                Use flowchart syntax (graph TD or graph LR).
+                Keep it simple with 5-10 nodes maximum.
+                Use descriptive labels and clear arrows.
+                
+                Example format:
+                ```mermaid
+                graph TD
+                    A[Start] --> B[Process]
+                    B --> C[Result]
+                ```
+                """
+                
+                mermaid_code = call_openrouter(diagram_prompt, timeout=60)
+                
+                # Extract mermaid code from markdown
+                import re
+                mermaid_match = re.search(r'```mermaid\n(.*?)\n```', mermaid_code, re.DOTALL)
+                
+                if mermaid_match:
+                    mermaid_diagram = mermaid_match.group(1)
+                    st.code(mermaid_diagram, language="mermaid")
+                    st.info("💡 Copy this code and paste it into https://mermaid.live to view the diagram")
+                else:
+                    st.markdown("### Generated Diagram Code:")
+                    st.code(mermaid_code)
+                
+            except Exception as e:
+                st.error(f"❌ Error creating diagram: {e}")
+    
+    # Option 3: Simple concept map using NetworkX
+    st.markdown("---")
+    st.subheader("🕸️ Generate Concept Map")
+    
+    if st.button("🗺️ Create Concept Map"):
+        with st.spinner("Building concept map..."):
+            try:
+                map_prompt = f"""
+                For the concept '{doubt}', provide:
+                1. Central concept name (1-3 words)
+                2. 5-7 related sub-concepts (each 1-3 words)
+                3. Brief relationship between central and each sub-concept
+                
+                Format as:
+                CENTRAL: [main concept]
+                SUB1: [sub-concept] - [relationship]
+                SUB2: [sub-concept] - [relationship]
+                ...
+                """
+                
+                map_data = call_openrouter(map_prompt, timeout=60)
+                
+                # Parse the response
+                lines = map_data.split('\n')
+                central = "Main Concept"
+                nodes = []
+                
+                for line in lines:
+                    if 'CENTRAL:' in line:
+                        central = line.split('CENTRAL:')[1].split('-')[0].strip()
+                    elif 'SUB' in line and ':' in line:
+                        parts = line.split(':', 1)[1].split('-')
+                        if parts:
+                            nodes.append(parts[0].strip())
+                
+                # Create network graph
+                G = nx.Graph()
+                G.add_node(central)
+                for node in nodes[:7]:  # Limit to 7 sub-concepts
+                    G.add_edge(central, node)
+                
+                # Draw
+                plt.figure(figsize=(12, 8))
+                pos = nx.spring_layout(G, k=2, iterations=50)
+                
+                # Draw nodes
+                nx.draw_networkx_nodes(G, pos, node_color='#4CAF50', 
+                                      node_size=3000, alpha=0.9)
+                nx.draw_networkx_nodes(G, pos, nodelist=[central], 
+                                      node_color='#FF5722', node_size=5000, alpha=0.9)
+                
+                # Draw edges and labels
+                nx.draw_networkx_edges(G, pos, width=2, alpha=0.6)
+                nx.draw_networkx_labels(G, pos, font_size=10, 
+                                       font_weight='bold', font_color='white')
+                
+                plt.title(f"Concept Map: {doubt}", fontsize=16, fontweight='bold')
+                plt.axis('off')
+                plt.tight_layout()
+                
+                map_path = "concept_map.png"
+                plt.savefig(map_path, dpi=150, bbox_inches='tight', facecolor='white')
+                plt.close()
+                
+                st.image(map_path, caption="🗺️ Concept Map", use_container_width=True)
+                st.info(map_data)
+                
+            except Exception as e:
+                st.error(f"❌ Error creating concept map: {e}")
