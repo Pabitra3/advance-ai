@@ -348,65 +348,50 @@ with tabs[3]:
 # Tab 5: AI Doubt Visualizer
 # =========================
 with tabs[4]:
-    st.subheader("⚡ AI Doubt Visualizer")
-    st.caption("Convert complex doubts into step-by-step visual explanations with narration.")
-    doubt = st.text_area("💭 Enter your doubt/question", placeholder="e.g., How does backpropagation work in neural networks?")
-    visualize_btn = st.button("Visualize Doubt")
+    st.header("🎨 AI Doubt Visualizer")
 
-    def generate_steps(question):
-        prompt = f"""
-        You are an expert tutor. A student asked: '{question}'.
-        Return a JSON array (no extra text) of 5 steps explaining this clearly.
-        Format:
-        [
-          {{"title": "Step 1 title", "detail": "Step 1 short detail"}},
-          ...
-        ]
-        Keep each title under 6 words and detail under 2 sentences.
-        """
-        try:
-            text = call_openrouter(prompt, timeout=30)
-            # try to extract JSON array
-            match = re.search(r"(\[.*\])", text, flags=re.S)
-            json_text = match.group(1) if match else text
-            data = json.loads(json_text)
-            return data
-        except Exception as e:
-            st.error(f"❌ Failed to generate steps: {e}")
-            return []
+    doubt = st.text_area("💭 Enter your doubt or concept to visualize")
+    if st.button("🎨 Generate Visual Explanation"):
+        if not doubt.strip():
+            st.warning("Please enter your question first.")
+        else:
+            with st.spinner("Generating visual explanation..."):
+                try:
+                    prompt = f"Create an educational infographic that explains: {doubt}. Use pastel colors, icons, and labels."
 
-    if visualize_btn and doubt:
-        with st.spinner("🧠 Thinking & Visualizing..."):
-            steps = generate_steps(doubt)
-            if steps:
-                st.success("✅ Generated Explanation Steps:")
-                for i, s in enumerate(steps, 1):
-                    st.markdown(f"*{i}. **{s['title']}** — {s['detail']}*")
+                    headers = {
+                        "Authorization": f"Bearer {IMAGEGEN_API_KEY}",
+                        "Content-Type": "application/json"
+                    }
 
-                # create frames and a gif inside a temporary directory, then read bytes
-                with tempfile.TemporaryDirectory() as td:
-                    frame_paths = []
-                    for i in range(len(steps)):
-                        p = os.path.join(td, f"frame_{i}.png")
-                        draw_step_graph(steps, i, p)
-                        frame_paths.append(p)
-                    gif_path = os.path.join(td, "visual.gif")
-                    imgs = [imageio.imread(p) for p in frame_paths]
-                    imageio.mimsave(gif_path, imgs, duration=1.0)
+                    payload = {
+                        "model": "google/gemini-2.5-flash-image-preview",
+                        "messages": [{"role": "user", "content": prompt}],
+                        "response_modalities": ["Image"]
+                    }
 
-                    # read gif bytes and display safely
-                    with open(gif_path, "rb") as gf:
-                        gif_bytes = gf.read()
-                        st.image(gif_bytes, caption="AI-Generated Visual Explanation", format="gif")
+                    response = requests.post("https://openrouter.ai/api/v1/chat/completions",
+                                             headers=headers, json=payload, timeout=90)
+                    response.raise_for_status()
+                    result = response.json()
 
-                    # Audio narration
-                    try:
-                        narration = " ".join([f"Step {i+1}: {s['title']}. {s['detail']}" for i, s in enumerate(steps)])
-                        tts = gTTS(text=narration, lang="en")
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as ta:
-                            tts.save(ta.name)
-                            st.audio(ta.name)
-                    except Exception as e:
-                        st.warning(f"Audio generation failed: {e}")
-            else:
-                st.error("❌ Could not generate steps. Try rephrasing your question.")
+                    part = result["choices"][0]["message"]["content"]["parts"][0]
+                    if "inline_data" in part:
+                        img_bytes = base64.b64decode(part["inline_data"]["data"])
+                    elif "url" in part:
+                        img_bytes = requests.get(part["url"]).content
+                    else:
+                        st.error("No image data found.")
+                        st.stop()
+
+                    st.image(img_bytes, caption="AI-Generated Visual Explanation", use_container_width=True)
+
+                    # Add optional audio explanation
+                    tts_text = f"Here’s a visual explanation for your question: {doubt}."
+                    tts = gTTS(text=tts_text, lang="en")
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmpfile:
+                        tts.save(tmpfile.name)
+                        st.audio(tmpfile.name, format="audio/mp3")
+
+                except Exception as e:
+                    st.error(f"❌ Error generating visual explanation: {e}")

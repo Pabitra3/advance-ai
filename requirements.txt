@@ -16,3 +16,4 @@ numpy==2.1.2
 
 # --- PDF Export (optional feature) ---
 fpdf==1.7.2
+python-dotenv==1.0.0
