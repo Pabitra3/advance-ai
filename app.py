@@ -166,100 +166,212 @@ with tabs[1]:
                     st.error(f"❌ Request failed: {e}")
 
 # -------------------------
-# Tab 3: AI Interview Coach
+# Tab 3: AI Interview Coach (Enhanced)
 # -------------------------
 with tabs[2]:
     st.subheader("🎤 AI Interview Coach")
-    domain = st.selectbox("Choose your Interview Domain", ["Machine Learning", "Web Development", "Data Analytics", "Data Science"])
-    mode = st.radio("Answer Mode", ["Text", "Voice"])
-    user_answer = ""
 
-    if mode == "Text":
-        user_answer = st.text_area("Type your answer here")
-    else:
-        audio_file = st.file_uploader("Upload your answer as audio (.wav or .mp3)", type=["wav","mp3"])
-        if audio_file:
-            r = sr.Recognizer()
-            with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
-                tmp_file.write(audio_file.read())
-                tmp_path = tmp_file.name
-            with sr.AudioFile(tmp_path) as source:
-                audio_data = r.record(source)
-                try:
-                    user_answer = r.recognize_google(audio_data)
-                    st.info(f"Transcribed Answer: {user_answer}")
-                except:
-                    st.error("Could not recognize audio. Try typing instead.")
+    # 1️⃣ Auto-fetch domain from goal
+    domain = goal if goal else st.selectbox(
+        "Choose your Interview Domain", 
+        ["Machine Learning", "Web Development", "Data Analytics", "Data Science"]
+    )
+    st.info(f"📘 Interview Domain: **{domain}**")
 
-    if user_answer:
-        if st.button("Evaluate Answer", key="ai_interview"):
-            with st.spinner("AI evaluating..."):
-                prompt = f"Act as an interview evaluator for {domain}. Evaluate this answer: '{user_answer}'. Provide a score (0-10) for confidence, tone, technical accuracy and give improvement suggestions."
-                headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"}
-                payload = {"model": MODEL_ID, "messages": [{"role": "user", "content": prompt}]}
-                try:
-                    r = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=30)
-                    if r.status_code == 200:
-                        result = r.json()["choices"][0]["message"]["content"]
-                        st.markdown(f"**AI Feedback:**\n{result}")
+    # 2️⃣ Choose number of questions
+    num_questions = st.radio(
+        "Select number of interview questions",
+        [50, 100, 200],
+        horizontal=True
+    )
 
-                        # Audio Feedback
-                        tts = gTTS(text=result, lang="en")
-                        tmp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-                        tts.save(tmp_audio.name)
-                        audio_bytes = open(tmp_audio.name, "rb").read()
-                        st.audio(audio_bytes, format="audio/mp3")
+    # 3️⃣ Generate Questions
+    if st.button("⚙️ Generate Interview Questions"):
+        with st.spinner("AI is generating interview questions..."):
+            prompt = f"""
+            You are an expert technical interviewer for {domain}.
+            Generate {num_questions} high-quality interview questions covering beginner to advanced concepts.
+            Each question should be clear, concise, and relevant.
+            Number the questions as:
+            1. Question one
+            2. Question two
+            ...
+            """
+            headers = {
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json",
+            }
+            payload = {"model": MODEL_ID, "messages": [{"role": "user", "content": prompt}]}
 
-                        # Save Feedback
-                        if "interview_history" not in st.session_state:
-                            st.session_state["interview_history"] = []
-                        st.session_state["interview_history"].append({
-                            "domain": domain, "answer": user_answer, "feedback": result, "date": str(datetime.now())
-                        })
+            try:
+                r = requests.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=60,
+                )
+                if r.status_code == 200:
+                    ai_questions = r.json()["choices"][0]["message"]["content"]
+                    st.session_state["interview_questions"] = ai_questions
+                    st.success("✅ Interview questions generated successfully!")
+                else:
+                    st.error(f"❌ API Error: {r.status_code}")
+            except Exception as e:
+                st.error(f"❌ Request failed: {e}")
+
+    # 4️⃣ Show the questions if available
+    if "interview_questions" in st.session_state:
+        import re
+        questions_text = st.session_state["interview_questions"]
+
+        # Extract numbered questions
+        question_list = re.findall(r"\d+\.\s*(.+)", questions_text)
+        if question_list:
+            st.markdown("### 🧩 Your Interview Questions")
+
+            # Initialize answer storage
+            if "interview_answers" not in st.session_state:
+                st.session_state["interview_answers"] = {}
+
+            for idx, q in enumerate(question_list, 1):
+                with st.expander(f"Q{idx}: {q}"):
+                    mode = st.radio(
+                        f"Answer mode for Q{idx}",
+                        ["Text", "Voice"],
+                        key=f"mode_{idx}"
+                    )
+
+                    user_answer = ""
+
+                    if mode == "Text":
+                        user_answer = st.text_area(f"✍️ Your answer for Q{idx}", key=f"ans_{idx}")
                     else:
-                        st.error(f"❌ API Error: {r.status_code}")
-                except Exception as e:
-                    st.error(f"❌ Request failed: {e}")
+                        audio_file = st.file_uploader(
+                            f"🎙️ Upload your voice answer for Q{idx} (.mp3)", 
+                            type=["mp3"], 
+                            key=f"audio_{idx}"
+                        )
+                        if audio_file:
+                            import tempfile
+                            r = sr.Recognizer()
+                            with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+                                tmp_file.write(audio_file.read())
+                                tmp_path = tmp_file.name
+                            with sr.AudioFile(tmp_path) as source:
+                                audio_data = r.record(source)
+                                try:
+                                    user_answer = r.recognize_google(audio_data)
+                                    st.info(f"Transcribed Answer: {user_answer}")
+                                except:
+                                    st.error("❌ Could not recognize audio. Try again or type manually.")
+
+                    # 5️⃣ Evaluate each answer individually
+                    if user_answer and st.button(f"🧠 Evaluate Answer Q{idx}", key=f"eval_{idx}"):
+                        with st.spinner("AI is evaluating your answer..."):
+                            eval_prompt = f"""
+                            You are a senior interviewer in {domain}.
+                            Evaluate the following answer for question: '{q}'.
+                            Answer: '{user_answer}'.
+                            Provide:
+                            - A score (0-10) for confidence, technical depth, and clarity.
+                            - 2-3 lines of improvement suggestions.
+                            """
+                            headers = {
+                                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                                "Content-Type": "application/json",
+                            }
+                            payload = {
+                                "model": MODEL_ID,
+                                "messages": [{"role": "user", "content": eval_prompt}],
+                            }
+
+                            try:
+                                r = requests.post(
+                                    "https://openrouter.ai/api/v1/chat/completions",
+                                    headers=headers,
+                                    json=payload,
+                                    timeout=60,
+                                )
+                                if r.status_code == 200:
+                                    feedback = r.json()["choices"][0]["message"]["content"]
+                                    st.markdown(f"**🧩 AI Feedback:**\n{feedback}")
+                                    st.session_state["interview_answers"][idx] = {
+                                        "question": q,
+                                        "answer": user_answer,
+                                        "feedback": feedback,
+                                    }
+
+                                    # Optional: Convert feedback to voice
+                                    try:
+                                        tts = gTTS(text=feedback, lang="en")
+                                        tmp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+                                        tts.save(tmp_audio.name)
+                                        st.audio(tmp_audio.name)
+                                    except:
+                                        pass
+                                else:
+                                    st.error(f"❌ API Error: {r.status_code}")
+                            except Exception as e:
+                                st.error(f"❌ Request failed: {e}")
+        else:
+            st.warning("⚠️ Could not extract questions from AI response. Try regenerating.")
+
 
 # -------------------------
-# Tab 4: Progress Dashboard
+# Tab 4: Progress Dashboard (AI Interview Integration)
 # -------------------------
 with tabs[3]:
     st.subheader("📊 Interview Progress Dashboard")
-    history = st.session_state.get("interview_history", [])
-    if history:
-        df = pd.DataFrame(history)
-        st.dataframe(df[["date","domain","answer"]])
 
-        # Naive score extraction
+    # Fetch saved answers from interview tab
+    history = st.session_state.get("interview_answers", {})
+
+    if history:
+        # Convert dict to DataFrame
+        import pandas as pd
+        df = pd.DataFrame(history).T  # transpose to get each idx as a row
+        st.dataframe(df[["question", "answer", "feedback"]])
+
+        # -------------------------
+        # Extract scores from AI feedback
+        # -------------------------
+        import re
+
         def extract_score(text, metric):
-            import re
-            match = re.search(f"{metric}: *(\\d+)", text)
+            # Example: 'confidence: 8'
+            match = re.search(f"{metric}: *(\\d+)", text, re.IGNORECASE)
             return int(match.group(1)) if match else None
 
         df["Confidence"] = df["feedback"].apply(lambda x: extract_score(x, "confidence"))
-        df["Tone"] = df["feedback"].apply(lambda x: extract_score(x, "tone"))
         df["Technical"] = df["feedback"].apply(lambda x: extract_score(x, "technical"))
+        df["Clarity"] = df["feedback"].apply(lambda x: extract_score(x, "clarity"))
 
-        # Line chart
+        # -------------------------
+        # Show charts
+        # -------------------------
+        import matplotlib.pyplot as plt
         st.markdown("### 📈 Score Trends")
-        fig, ax = plt.subplots()
-        ax.plot(df["date"], df["Confidence"], label="Confidence", marker='o', color="#4CAF50")
-        ax.plot(df["date"], df["Tone"], label="Tone", marker='o', color="#FF9800")
-        ax.plot(df["date"], df["Technical"], label="Technical", marker='o', color="#2196F3")
-        ax.set_xlabel("Date")
-        ax.set_ylabel("Score")
+        fig, ax = plt.subplots(figsize=(10, 4))
+        ax.plot(df.index, df["Confidence"], label="Confidence", marker="o", color="#4CAF50")
+        ax.plot(df.index, df["Technical"], label="Technical", marker="o", color="#2196F3")
+        ax.plot(df.index, df["Clarity"], label="Clarity", marker="o", color="#FF9800")
+        ax.set_xlabel("Question Number")
+        ax.set_ylabel("Score (0-10)")
         ax.set_ylim(0, 10)
         ax.legend()
         st.pyplot(fig)
 
-        # Badges
+        # -------------------------
+        # Badges / Achievements
+        # -------------------------
         st.markdown("### 🏅 Achievements")
         if len(df) >= 1:
             st.success("🥇 First Interview Completed!")
-        if df["Confidence"].iloc[-1] and df["Confidence"].iloc[-1] >= 8:
+        if df["Confidence"].dropna().max() >= 8:
             st.success("💡 Confidence Master Badge!")
-        if df["Technical"].iloc[-1] and df["Technical"].iloc[-1] >= 8:
+        if df["Technical"].dropna().max() >= 8:
             st.success("🧠 Technical Genius Badge!")
+        if df["Clarity"].dropna().max() >= 8:
+            st.success("🎯 Clear Communicator Badge!")
     else:
-        st.info("No interviews yet. Try the AI Interview Coach tab first.")
+        st.info("No interview answers yet. Use the AI Interview Coach tab first.")
