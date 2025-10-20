@@ -349,7 +349,7 @@ with tabs[3]:
         st.info("No interview answers yet. Use the AI Interview Coach tab first.")
 
 # =========================
-# Tab 5: AI Doubt Visualizer
+# Tab 5: AI Doubt Visualizer (FIXED)
 # =========================
 with tabs[4]:
     st.header("🎨 AI Doubt Visualizer")
@@ -358,49 +358,98 @@ with tabs[4]:
     if st.button("🎨 Generate Visual Explanation"):
         with st.spinner("Generating visual explanation..."):
             import base64
-            import json
 
             try:
+                # Make API request
                 r = requests.post(
                     "https://openrouter.ai/api/v1/images/generations",
-                    headers={"Authorization": f"Bearer {IMAGEGEN_API_KEY}", "Content-Type": "application/json"},
+                    headers={
+                        "Authorization": f"Bearer {IMAGEGEN_API_KEY}", 
+                        "Content-Type": "application/json"
+                    },
                     json={
-                    "model": "google/gemini-2.5-flash-image-preview-nano-banana",
-                    "prompt": f"Visual diagram explaining the concept: {doubt}",
-                    "size": "1024x1024"
+                        "model": "google/gemini-2.5-flash-image-preview-nano-banana",
+                        "prompt": f"Visual diagram explaining the concept: {doubt}",
+                        "size": "1024x1024"
                     },
                     timeout=60,
                 )
-                # ✅ Print or display the raw text response to debug
-                st.subheader("🔍 Raw API Response:")
-                st.code(r.text)
+                
+                # Check if request was successful
+                if r.status_code != 200:
+                    st.error(f"❌ API Error {r.status_code}: {r.text}")
+                    st.stop()
+                
+                # Try to parse JSON
                 try:
                     result = r.json()
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as je:
                     st.error("⚠️ Could not parse response as JSON.")
-                    st.text(r.text)
+                    st.subheader("🔍 Raw API Response:")
+                    st.code(r.text)
+                    st.error(f"JSON Error: {str(je)}")
                     st.stop()
 
-                if isinstance(result, dict) and "data" in result:
-                    image_base64 = result["data"][0]["b64_json"]
+                # Extract image data based on response structure
+                image_base64 = None
+                
+                # Check for standard OpenAI-style response
+                if isinstance(result, dict):
+                    if "data" in result and len(result["data"]) > 0:
+                        image_data = result["data"][0]
+                        # Check for both b64_json and url
+                        if "b64_json" in image_data:
+                            image_base64 = image_data["b64_json"]
+                        elif "url" in image_data:
+                            # If URL is provided instead of base64
+                            image_url = image_data["url"]
+                            st.image(image_url, caption="🧠 Gemini AI Visual Explanation", use_container_width=True)
+                            image_base64 = "URL_PROVIDED"  # Skip base64 decoding
+                    elif "error" in result:
+                        st.error(f"❌ API returned error: {result['error']}")
+                        st.stop()
+                
+                # Check for list response format
                 elif isinstance(result, list) and len(result) > 0:
-                    image_base64 = result[0].get("b64_json", None)
-                else:
-                    st.error("⚠️ Unexpected API response format. Try again later.")
-                    st.write(result)
+                    if "b64_json" in result[0]:
+                        image_base64 = result[0]["b64_json"]
+                    elif "url" in result[0]:
+                        image_url = result[0]["url"]
+                        st.image(image_url, caption="🧠 Gemini AI Visual Explanation", use_container_width=True)
+                        image_base64 = "URL_PROVIDED"
+                
+                # If we couldn't extract image data
+                if not image_base64:
+                    st.error("⚠️ Unexpected API response format.")
+                    st.subheader("🔍 Response Structure:")
+                    st.json(result)
+                    st.info("The API response doesn't contain expected image data. Please check the API documentation or try a different model.")
                     st.stop()
-
-                image_bytes = base64.b64decode(image_base64)
-                st.image(image_bytes, caption="🧠 Gemini AI Visual Explanation", use_container_width=True)
-            except Exception as e:
-                st.error(f"❌ Error generating visual explanation: {e}")
+                
+                # Decode and display base64 image if provided
+                if image_base64 and image_base64 != "URL_PROVIDED":
+                    try:
+                        image_bytes = base64.b64decode(image_base64)
+                        st.image(image_bytes, caption="🧠 Gemini AI Visual Explanation", use_container_width=True)
+                    except Exception as decode_error:
+                        st.error(f"❌ Error decoding image: {decode_error}")
+                        st.stop()
                 
                 # Add optional audio explanation
-                tts_text = f"Here’s a visual explanation for your question: {doubt}."
-                tts = gTTS(text=tts_text, lang="en")
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmpfile:
-                    tts.save(tmpfile.name)
-                    st.audio(tmpfile.name, format="audio/mp3")
+                try:
+                    tts_text = f"Here's a visual explanation for your question: {doubt}."
+                    tts = gTTS(text=tts_text, lang="en")
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmpfile:
+                        tts.save(tmpfile.name)
+                        st.audio(tmpfile.name, format="audio/mp3")
+                except Exception as tts_error:
+                    # Don't fail the whole operation if TTS fails
+                    st.warning(f"Could not generate audio: {tts_error}")
 
+            except requests.exceptions.Timeout:
+                st.error("❌ Request timed out. Please try again.")
+            except requests.exceptions.RequestException as req_error:
+                st.error(f"❌ Network error: {req_error}")
             except Exception as e:
-                st.error(f"❌ Error generating visual explanation: {e}")
+                st.error(f"❌ Unexpected error: {e}")
+                st.exception(e)  # Show full traceback for debugging
