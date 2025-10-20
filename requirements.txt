@@ -1,10 +1,18 @@
-streamlit
-requests
-gTTS
-SpeechRecognition
-matplotlib
-pandas
-networkx
-imageio
-fpdf
-PyAudio
+# --- Core App ---
+streamlit==1.39.0
+requests==2.32.3
+pandas==2.2.3
+matplotlib==3.9.2
+
+# --- AI Voice & Audio ---
+gTTS==2.5.3
+SpeechRecognition==3.10.1
+
+# --- Visualization & Graphs ---
+networkx==3.4.2
+imageio==2.35.1
+Pillow==10.4.0
+numpy==2.1.2
+
+# --- PDF Export (optional feature) ---
+fpdf==1.7.2
