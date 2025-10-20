@@ -375,3 +375,94 @@ with tabs[3]:
             st.success("🎯 Clear Communicator Badge!")
     else:
         st.info("No interview answers yet. Use the AI Interview Coach tab first.")
+# -------------------------
+# Tab 5: AI Doubt Visualizer
+# -------------------------
+import networkx as nx
+import imageio
+
+with st.tabs(["📚 Learning Plan", "🤖 AI Tutor", "🎤 AI Interview Coach", "📊 Progress Dashboard", "⚡ AI Doubt Visualizer"])[4]:
+    st.subheader("⚡ AI Doubt Visualizer")
+    st.caption("Convert complex doubts into easy, step-by-step visual explanations with AI-powered animations & narration.")
+
+    doubt = st.text_area("💭 Enter your doubt/question", placeholder="e.g., How does backpropagation work in neural networks?")
+    visualize_btn = st.button("Visualize Doubt", key="visualizer")
+
+    def generate_steps(question):
+        prompt = f"""
+        You are an expert tutor. A student asked: '{question}'.
+        Return a JSON array (no extra text) of 5 steps explaining this clearly.
+        Format:
+        [
+          {{"title": "Step 1 title", "detail": "Step 1 short detail"}},
+          ...
+        ]
+        Keep each title under 6 words and detail under 2 sentences.
+        """
+        headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"}
+        payload = {"model": MODEL_ID, "messages": [{"role": "user", "content": prompt}]}
+        try:
+            r = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=30)
+            text = r.json()["choices"][0]["message"]["content"]
+            import re, json
+            match = re.search(r"(\[.*\])", text, flags=re.S)
+            data = json.loads(match.group(1)) if match else json.loads(text)
+            return data
+        except Exception as e:
+            st.error(f"❌ Failed to generate steps: {e}")
+            return []
+
+    def draw_step_graph(steps, highlight_index, outpath):
+        G = nx.DiGraph()
+        labels = {i: f"{i+1}. {steps[i]['title']}" for i in range(len(steps))}
+        for i in range(len(steps) - 1):
+            G.add_edge(i, i+1)
+        pos = {i: (i, 0) for i in range(len(steps))}
+        node_colors = ["#4CAF50" if i == highlight_index else "#B0BEC5" for i in range(len(steps))]
+        node_sizes = [1400 if i == highlight_index else 900 for i in range(len(steps))]
+        plt.figure(figsize=(8, 3))
+        nx.draw(G, pos, with_labels=False, node_color=node_colors, node_size=node_sizes, arrows=True)
+        nx.draw_networkx_labels(G, pos, labels=labels, font_size=9, font_weight="bold")
+        plt.text(0, -0.8, steps[highlight_index]["detail"], fontsize=10, wrap=True)
+        plt.axis("off")
+        plt.tight_layout()
+        plt.savefig(outpath, dpi=150)
+        plt.close()
+
+    def generate_visualization(steps):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            frames = []
+            paths = []
+            for i in range(len(steps)):
+                fname = os.path.join(td, f"frame_{i}.png")
+                draw_step_graph(steps, i, fname)
+                paths.append(fname)
+            gif_path = os.path.join(td, "visual.gif")
+            imgs = [imageio.imread(p) for p in paths]
+            imageio.mimsave(gif_path, imgs, duration=1.0)
+            return gif_path
+
+    if visualize_btn and doubt:
+        with st.spinner("🧠 Thinking & Visualizing..."):
+            steps = generate_steps(doubt)
+            if steps:
+                st.success("✅ Generated Explanation Steps:")
+                for i, s in enumerate(steps, 1):
+                    st.markdown(f"*{i}. {s['title']}* — {s['detail']}")
+
+                # Visualize as GIF
+                gif_path = generate_visualization(steps)
+                st.image(gif_path, caption="AI-Generated Visual Explanation")
+
+                # Audio Narration
+                try:
+                    narration = " ".join([f"Step {i+1}: {s['title']}. {s['detail']}" for i, s in enumerate(steps)])
+                    tts = gTTS(text=narration, lang="en")
+                    tmp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+                    tts.save(tmp_audio.name)
+                    st.audio(tmp_audio.name)
+                except Exception as e:
+                    st.warning(f"Audio generation failed: {e}")
+            else:
+                st.error("❌ Could not generate steps. Try rephrasing your question.")
