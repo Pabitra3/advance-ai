@@ -135,9 +135,14 @@ with tabs[0]:
 with tabs[1]:
     if name:
         st.subheader("🤖 AI Tutor Assistant")
-        # Ensure topic_list exists
-        if "topic_list" not in locals():
-           topic_list = ["General Concepts", "Exercises", "Mini Project"]
+        # Extract topics dynamically from AI plan
+        if "ai_plan_text" in st.session_state:
+            import re
+            plan_text = st.session_state["ai_plan_text"]
+            topic_list = re.findall(r"Day\s*\d{1,2}[:\-]?\s*(.+?)(?:—|-|\n|$)", plan_text)
+            topic_list = [t.strip() for t in topic_list if len(t.strip()) > 2]
+        else:
+            topic_list = ["General Concepts", "Exercises", "Mini Project"]
         chosen_topic = st.selectbox("Select a Topic", topic_list)
         action = st.radio(
             "Choose AI Action",
