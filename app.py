@@ -381,7 +381,7 @@ with tabs[3]:
 import networkx as nx
 import imageio
 
-with st.tabs(["📚 Learning Plan", "🤖 AI Tutor", "🎤 AI Interview Coach", "📊 Progress Dashboard", "⚡ AI Doubt Visualizer"])[4]:
+with st.tabs[5]:
     st.subheader("⚡ AI Doubt Visualizer")
     st.caption("Convert complex doubts into easy, step-by-step visual explanations with AI-powered animations & narration.")
 
