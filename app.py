@@ -13,12 +13,17 @@ import re
 import networkx as nx
 import imageio
 from fpdf import FPDF
+from dotenv import load_dotenv
 
 # =============================
 # Intellexa AI Tutor Settings
 # =============================
+load_dotenv()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 MODEL_ID = "gpt-4o-mini"
+IMAGEGEN_API_KEY = os.getenv("IMAGEGEN_API_KEY")
+
+
 
 # -------------------------
 # Page config
