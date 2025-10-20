@@ -372,7 +372,7 @@ with tabs[4]:
                     timeout=60,
                 )
                 # ✅ Print or display the raw text response to debug
-                st.write("🔍 Raw API Response:")
+                st.subheader("🔍 Raw API Response:")
                 st.code(r.text)
                 try:
                     result = r.json()
@@ -389,7 +389,7 @@ with tabs[4]:
                     st.error("⚠️ Unexpected API response format. Try again later.")
                     st.write(result)
                     st.stop()
-                    
+
                 image_bytes = base64.b64decode(image_base64)
                 st.image(image_bytes, caption="🧠 Gemini AI Visual Explanation", use_container_width=True)
             except Exception as e:
