@@ -47,7 +47,7 @@ with st.sidebar:
 # -------------------------
 # Tabs
 # -------------------------
-tabs = st.tabs(["📚 Learning Plan", "🤖 AI Tutor", "🎤 AI Interview Coach", "📊 Progress Dashboard"])
+tabs = st.tabs(["📚 Learning Plan", "🤖 AI Tutor", "🎤 AI Interview Coach", "📊 Progress Dashboard", "⚡ AI Doubt Visualizer"])
 
 # -------------------------
 # Tab 1: Learning Plan (AI-Generated)
